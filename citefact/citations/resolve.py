@@ -8,20 +8,27 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from .base import Citation
-from .matcher import _first_author_surname, _citation_surname, _year_matches
+from .matcher import _citation_surname, _first_author_surname, _year_matches
 
 
 def _default_fetcher(url: str) -> dict:
+    if not url.startswith(("http://", "https://")):
+        msg = f"URL scheme not permitted: {url}"
+        raise ValueError(msg)
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "CiteFact/0.2.0 (citation-resolution; https://github.com/LiamDGray/citefact)"},
+        headers={
+            "User-Agent": "CiteFact/0.2.0 (citation-resolution; https://github.com/LiamDGray/citefact)"
+        },
     )
-    with urllib.request.urlopen(req, timeout=5) as response:
+    with urllib.request.urlopen(req, timeout=5) as response:  # nosec B310 - verified http/https above
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -64,7 +71,13 @@ def openlibrary_search(
     url = f"https://openlibrary.org/search.json?{'&'.join(query_parts)}&limit=5"
     try:
         data = fetch(url)
-    except Exception:
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
         return None
 
     docs = data.get("docs") or []
@@ -74,11 +87,18 @@ def openlibrary_search(
     # Filter by year if supplied
     for doc in docs:
         doc_year = doc.get("first_publish_year")
-        if year is not None and doc_year is not None:
-            if not _year_matches(year, doc_year):
-                continue
+        if (
+            year is not None
+            and doc_year is not None
+            and not _year_matches(year, doc_year)
+        ):
+            continue
         author_names = doc.get("author_name") or []
-        author_str = _format_authors(author_names) if author_names else _format_author_name(author)
+        author_str = (
+            _format_authors(author_names)
+            if author_names
+            else _format_author_name(author)
+        )
         return {
             "id": doc.get("key", "").replace("/works/", "ol_"),
             "title": doc.get("title", ""),
@@ -94,7 +114,9 @@ def openlibrary_search(
     return {
         "id": top.get("key", "").replace("/works/", "ol_"),
         "title": top.get("title", ""),
-        "authors": _format_authors(author_names) if author_names else _format_author_name(author),
+        "authors": _format_authors(author_names)
+        if author_names
+        else _format_author_name(author),
         "year": int(top_year) if top_year else year,
         "source": "openlibrary",
     }
@@ -121,7 +143,13 @@ def google_books_search(
     url = f"https://www.googleapis.com/books/v1/volumes?q={query}&maxResults=5"
     try:
         data = fetch(url)
-    except Exception:
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
         return None
 
     items = data.get("items") or []
@@ -134,15 +162,20 @@ def google_books_search(
         match_year = re.search(r"\b(19|20)\d{2}\b", pub_date)
         item_year = int(match_year.group(0)) if match_year else None
 
-        if year is not None and item_year is not None:
-            if not _year_matches(year, item_year):
-                continue
+        if (
+            year is not None
+            and item_year is not None
+            and not _year_matches(year, item_year)
+        ):
+            continue
 
         authors = info.get("authors") or []
         return {
             "id": item.get("id", f"gb_{item_year}"),
             "title": info.get("title", ""),
-            "authors": _format_authors(authors) if authors else _format_author_name(author),
+            "authors": _format_authors(authors)
+            if authors
+            else _format_author_name(author),
             "year": item_year or year,
             "source": "google_books",
         }
@@ -195,10 +228,13 @@ def hydrate_catalog_for_citations(
         already_matched = False
         for paper in updated.values():
             cand_surname = _first_author_surname(paper.get("authors", ""))
-            if cand_surname and cand_surname.lower() == surname.lower():
-                if _year_matches(cite.year, paper.get("year")):
-                    already_matched = True
-                    break
+            if (
+                cand_surname
+                and cand_surname.lower() == surname.lower()
+                and _year_matches(cite.year, paper.get("year"))
+            ):
+                already_matched = True
+                break
 
         if not already_matched:
             resolved = resolve_fn(cite.author_string, cite.year)

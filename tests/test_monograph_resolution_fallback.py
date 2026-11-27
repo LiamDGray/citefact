@@ -1,13 +1,12 @@
 """Unit tests for automated monograph metadata cascade resolution."""
 
-import pytest
 from citefact.citations.base import Citation
 from citefact.citations.matcher import resolve_to_catalog
 from citefact.citations.resolve import (
-    openlibrary_search,
     google_books_search,
-    resolve_cascade,
     hydrate_catalog_for_citations,
+    openlibrary_search,
+    resolve_cascade,
 )
 
 
@@ -79,7 +78,9 @@ def test_resolve_cascade_fallback_to_google_books():
 def test_resolve_to_catalog_with_auto_hydration():
     catalog = {}  # Empty local catalog
     citations = [
-        Citation(raw="(Arendt, 1951)", author_string="Arendt", year=1951, start=0, end=14),
+        Citation(
+            raw="(Arendt, 1951)", author_string="Arendt", year=1951, start=0, end=14
+        ),
     ]
 
     def mock_cascade(author, year, title=None):
@@ -98,7 +99,9 @@ def test_resolve_to_catalog_with_auto_hydration():
     assert matched[0].paper_id is None
 
     # Hydrate catalog
-    hydrated_catalog = hydrate_catalog_for_citations(citations, catalog, resolver=mock_cascade)
+    hydrated_catalog = hydrate_catalog_for_citations(
+        citations, catalog, resolver=mock_cascade
+    )
     assert "ol_arendt_1951" in hydrated_catalog
 
     # After hydration: matched
